@@ -143,6 +143,7 @@
 </header>
 <nav class="wrap" id="tabs">
   <button data-tab="pick" class="on">눌림목 후보</button>
+  <button data-tab="vpa" class="">VPA</button>
   <button data-tab="sector">업종 순위</button>
   <button data-tab="leader">업종 주도주</button>
   <button data-tab="all">전종목</button>
@@ -195,6 +196,19 @@
       </div>
       <p class="hint" id="leaderHint"></p>
       <div class="tablewrap"><table id="leaderTable"></table></div>
+    </div>
+  </section>
+
+  <section id="tab-vpa" hidden>
+    <div class="card">
+      <h2>VPA 점수 상위 종목</h2>
+      <p class="hint">전종목 중 VPA 점수가 기준 이상인 종목입니다. 다른 조건(RS, 이격 등)은 적용하지 않습니다. 종목을 누르면 차트가 나옵니다.</p>
+      <div class="conds" style="max-width:420px">
+        <label>VPA 점수 (이상)<input id="v_min" type="number" step="0.05" min="0" max="1" value="0.9"></label>
+        <label>패턴<select id="v_pat"><option value="">전체</option></select></label>
+      </div>
+      <p class="hint" style="margin-top:10px" id="vpaCount"></p>
+      <div class="tablewrap"><table id="vpaTable"></table></div>
     </div>
   </section>
 
@@ -488,6 +502,25 @@ function renderLeader() {
   ], rows, { onRow: openChart });
 }
 
+/* ---------- VPA ---------- */
+function renderVpa() {
+  const min = parseFloat($("v_min").value), pat = $("v_pat").value;
+  const rows = DATA.stocks.filter(s => s["점수"] !== null && s["점수"] >= (isNaN(min) ? 0.9 : min) && (!pat || s["패턴"] === pat));
+  const byPat = {}; rows.forEach(s => byPat[s["패턴"]] = (byPat[s["패턴"]] || 0) + 1);
+  $("vpaCount").textContent = `${rows.length}개 종목` + (rows.length ? " · " + Object.entries(byPat).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(", ") : "");
+  renderTable($("vpaTable"), [
+    { k: "종목명", t: "종목", l: 1, f: (v, r) => `<b>${esc(v)}</b> <span class="meta">${esc(r["종목코드"])}</span>` },
+    { k: "업종명", t: "업종", l: 1, f: (v, r) => `${esc(v)} ${badges(r["업종 신호"])}` },
+    { k: "점수", t: "VPA 점수", f: v => fmt(v, 2) }, { k: "패턴", t: "VPA 패턴", l: 1 },
+    { k: "매칭일", t: "패턴 날짜" },
+    { k: "종목RS", t: "종목RS" }, { k: "업종RS(1개월)", t: "업종RS" },
+    { k: "1개월 등락률(%)", t: "1개월", f: pct }, { k: "2주 등락률(%)", t: "2주", f: pct },
+    { k: "현재가", t: "현재가", f: v => fmt(v) }, { k: "20일선 이격", t: "이격", f: v => fmt(v, 3) },
+    { k: "거래량비(3일/20일)", t: "거래량비", f: v => fmt(v, 2) },
+    { k: "시가총액(억)", t: "시총(억)", f: v => fmt(v) },
+  ], rows, { sortKey: "점수", onRow: openChart, emptyText: "기준 이상인 종목이 없습니다." });
+}
+
 /* ---------- 전종목 ---------- */
 function renderAll() {
   const q = $("search").value.trim().toLowerCase();
@@ -678,7 +711,9 @@ fetch("data/latest.json", { cache: "no-store" })
     Object.values(IDS).forEach(id => $(id).addEventListener("input", renderPick));
     $("resetBtn").onclick = () => { setDefaults(); renderPick(); };
     $("search").addEventListener("input", renderAll);
-    renderPick(); renderSector(); renderLeader(); renderAll();
+    [...new Set(d.stocks.map(s => s["패턴"]).filter(Boolean))].sort().forEach(p => $("v_pat").insertAdjacentHTML("beforeend", `<option>${esc(p)}</option>`));
+    $("v_min").addEventListener("input", renderVpa); $("v_pat").addEventListener("change", renderVpa);
+    renderPick(); renderVpa(); renderSector(); renderLeader(); renderAll();
   })
   .catch(err => {
     $("meta").textContent = "데이터를 불러오지 못했습니다. 아직 첫 자동 실행 전이거나, 파일을 컴퓨터에서 바로 연 경우입니다 (웹 주소로 열어주세요).";
