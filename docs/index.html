@@ -332,10 +332,10 @@ function renderLeader() {
   const stockBy = Object.fromEntries(DATA.stocks.map(s => [s["종목코드"], s]));
   const rows = DATA[leaderKey].map(r => ({ ...r, ...(stockBy[r["종목코드"]] ? { "종목RS": stockBy[r["종목코드"]]["종목RS"] } : {}) }));
   renderTable($("leaderTable"), [
-    { k: "업종명", t: "업종", l: 1, f: (v, r) => `${esc(v)} ${badges(r["업종 신호"])}` },
-    { k: is1m ? "업종RS(1개월)" : "업종RS(2주)", t: is1m ? "업종RS" : "업종RS(2주)" },
     { k: "종목명", t: "종목", l: 1, f: (v, r) => `<b>${esc(v)}</b> <span class="meta">${esc(r["종목코드"])}</span>` },
     { k: "종목RS", t: "종목RS" },
+    { k: "업종명", t: "업종", l: 1, f: (v, r) => `${esc(v)} ${badges(r["업종 신호"])}` },
+    { k: is1m ? "업종RS(1개월)" : "업종RS(2주)", t: is1m ? "업종RS" : "업종RS(2주)" },
     { k: "1개월 등락률(%)", t: "1개월", f: pct }, { k: "2주 등락률(%)", t: "2주", f: pct },
     { k: "1주 등락률(%)", t: "1주", f: pct }, { k: "거래량배율", t: "거래량배율", f: v => fmt(v, 2) },
     { k: "시가총액(억)", t: "시총(억)", f: v => fmt(v) },
