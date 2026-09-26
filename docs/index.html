@@ -376,7 +376,7 @@ function pricePlan(r, c) {
   else if (last >= buy * 1.03) { status = "이미 돌파 · 매수가 근처로 되돌림 대기"; cls = "warn"; }
   else if (last >= buy) { status = "돌파 진행 중 · 매수가 +3% 이내만 매수"; cls = "buy"; }
   else { status = `돌파 대기 · 현재가보다 +${((buy - last) / last * 100).toFixed(1)}% 위`; cls = "mix"; }
-  return { si, buy, stop, target, support, useSup, riskPct, supGap, rr: (target - buy) / (buy - stop), status, cls };
+  return { si, buy, stop, target, support, useSup, riskPct, supGap, status, cls, score: r["점수"], day: r["매칭일"] };
 }
 
 function spark(c, matchDay, plan) {
@@ -407,7 +407,7 @@ function planHtml(p) {
     <div><span>매수가</span><b style="color:var(--accent)">${fmt(p.buy)}</b><i>신호 캔들 고가 돌파</i></div>
     <div><span>손절가</span><b style="color:var(--down)">${fmt(p.stop)}</b><i>-${p.riskPct.toFixed(1)}% · ${p.useSup ? "지지선" : "-5% 원칙"}</i></div>
     <div><span>목표가</span><b style="color:var(--up)">${fmt(p.target)}</b><i>+10% · 절반 매도</i></div>
-    <div><span>손익비</span><b>${p.rr.toFixed(1)} : 1</b><i>${p.rr >= 1.8 ? "양호" : "보통"}</i></div>
+    <div><span>VPA 점수</span><b>${fmt(p.score, 2)}</b><i>패턴 날짜 ${p.day ? p.day.slice(5) : "-"}</i></div>
   </div>
   <div class="pstat ${p.cls}">${p.status}${p.cls !== "stop" && p.supGap > 5 ? ` · 지지선까지 -${p.supGap.toFixed(1)}%로 멀어 손절은 -5% 원칙 적용` : ""}</div>`;
 }
