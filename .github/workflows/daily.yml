@@ -1,0 +1,73 @@
+# 매일 장 마감 후 스크리너를 실행하고, 결과를 웹사이트(GitHub Pages)에 올립니다.
+name: 매일 스크리닝
+
+on:
+  schedule:
+    - cron: "10 7 * * 1-5"   # 월~금 07:10 UTC = 한국시간 16:10 (장 마감 후)
+  workflow_dispatch:          # Actions 화면의 'Run workflow' 버튼으로 직접 실행
+  push:                       # 웹페이지(index.html)만 고쳤을 때는 스크리닝 없이 다시 올리기만
+    branches: [main]
+    paths: ["docs/index.html"]
+
+permissions:
+  contents: write             # 결과 파일을 저장소에 저장
+  pages: write                # 웹사이트에 올리기
+  id-token: write
+
+concurrency:
+  group: daily-screening
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    env:
+      TZ: Asia/Seoul
+    steps:
+      - name: 저장소 가져오기
+        uses: actions/checkout@v4
+
+      - name: 파이썬 준비
+        if: github.event_name != 'push'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: 한글 글꼴 설치 (엑셀 속 차트용)
+        if: github.event_name != 'push'
+        run: (sudo apt-get update -qq && sudo apt-get install -y -qq fonts-nanum) || echo "글꼴 설치 실패 - 계속 진행"
+
+      - name: 필요한 프로그램 설치
+        if: github.event_name != 'push'
+        run: pip install -r requirements.txt
+
+      - name: 스크리닝 실행
+        if: github.event_name != 'push'
+        run: python screener.py
+
+      - name: 결과 저장
+        if: github.event_name != 'push'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/data
+          if git diff --cached --quiet; then
+            echo "바뀐 결과가 없습니다."
+          else
+            git commit -m "스크리닝 결과 $(date +'%Y-%m-%d')"
+            git push
+          fi
+
+      - name: 웹사이트 파일 준비
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - name: 웹사이트에 올리기
+        id: deploy
+        uses: actions/deploy-pages@v4
