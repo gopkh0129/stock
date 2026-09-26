@@ -489,8 +489,23 @@ def _score_effort_result(df, i):
         return None
     vol_score = _clip01((row["vol_ratio"] - 1) / 1.5)
     range_score = _clip01(1 - (row["range_"] / row["atr14"]) / 0.7)
-    score = (vol_score + range_score) / 2
+    # 두 조건이 모두 맞아야 하므로 곱한다 (기하평균). 캔들이 크면 거래량이 많아도 0점
+    score = (vol_score * range_score) ** 0.5
     return (_t("Effort-Result 불일치", "Effort-Result Mismatch"), score)
+
+
+def _score_effort_agree(df, i):
+    """거래량 급증 + 장대양봉 + 종가가 캔들 윗부분 = 노력과 결과가 일치하는 상승 확인"""
+    row = df.iloc[i]
+    if pd.isna(row["atr14"]) or pd.isna(row["vol_ratio"]) or pd.isna(row["close_pos"]) or row["atr14"] == 0:
+        return None
+    if row["Close"] <= row["Open"]:
+        return None
+    vol_score = _clip01((row["vol_ratio"] - 1) / 1.5)
+    wide_score = _clip01((row["range_"] / row["atr14"]) - 1)
+    pos_score = _clip01((row["close_pos"] - 0.5) / 0.4)
+    score = (vol_score * wide_score * pos_score) ** (1 / 3)
+    return (_t("Effort-Result 일치", "Effort-Result Agreement"), score)
 
 
 def _score_test_bar(df, i):
@@ -511,13 +526,13 @@ def _score_test_bar(df, i):
 
 
 def best_pattern_in_window(df, window=5):
-    """최근 window 거래일 중 4대 VPA 신호와 가장 유사한 캔들 하나를 찾는다."""
+    """최근 window 거래일 중 주요 VPA 신호와 가장 유사한 캔들 하나를 찾는다."""
     df = compute_indicators(df)
     n = len(df)
     candidates = []
     for i in range(max(0, n - window), n):
         for fn in [_score_no_supply_demand, _score_stopping_volume,
-                   _score_effort_result, _score_test_bar]:
+                   _score_effort_result, _score_effort_agree, _score_test_bar]:
             r = fn(df, i)
             if r is not None:
                 name, score = r
@@ -663,7 +678,7 @@ def add_vpa_sheets(wb, vpa_df, chart_paths, top_n, note):
             value=note + ("  →  조건을 만족하는 종목 없음" if len(vpa_df) == 0 else "")
             ).font = Font(name="Arial", size=9, italic=True, color="808080")
     n += 1
-    ws.cell(row=n, column=2, value="점수: 최근 5거래일 캔들이 4가지 VPA 패턴 중 하나와 얼마나 비슷한지(0~1). "
+    ws.cell(row=n, column=2, value="점수: 최근 5거래일 캔들이 VPA 패턴 중 하나와 얼마나 비슷한지(0~1). "
             "1차 필터용 참고 지표이며 최종 진입은 차트로 직접 확인하세요.").font = Font(name="Arial", size=9, italic=True, color="808080")
 
     ws2 = wb.create_sheet("VPA 상위 차트")
