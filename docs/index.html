@@ -446,8 +446,7 @@ function renderDash(rows) {
         <div><div class="px">${fmt(last)}원</div><div class="chg"><span class="meta">전일</span> ${pct(chg === null ? null : Math.round(chg * 100) / 100)}</div></div>
       </div>
       ${spark(c, r["매칭일"], plan)}
-      <div class="pat"><span>${esc(r["패턴"] || "-")} <span class="ptag ${kind}">${KIND_LABEL[kind]}</span></span>
-        <b>${fmt(sc, 2)}</b></div>
+      <div class="pat"><span>${esc(r["패턴"] || "-")} <span class="ptag ${kind}">${KIND_LABEL[kind]}</span></span></div>
       <div class="bar"><i style="width:${Math.max(0, Math.min(1, sc || 0)) * 100}%"></i></div>
       ${planHtml(plan)}
     </div>`;
