@@ -98,7 +98,17 @@
   .dcard .sec { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
   .dcard .px { text-align: right; font-weight: 700; font-size: 16px; white-space: nowrap; }
   .dcard .chg { text-align: right; font-size: 12px; }
-  .dcard svg { width: 100%; height: 56px; display: block; margin: 8px 0 6px; }
+  .dcard svg { width: 100%; height: 70px; display: block; margin: 8px 0 6px; }
+  .plan { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-top: 10px; }
+  .plan div { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0 6px; }
+  .plan span { font-size: 12px; color: var(--muted); }
+  .plan b { font-size: 14.5px; }
+  .plan i { flex-basis: 100%; text-align: right; font-style: normal; font-size: 11px; color: var(--muted); line-height: 1.25; }
+  .pstat { font-size: 12px; margin-top: 7px; padding: 4px 8px; border-radius: 6px; }
+  .pstat.buy { background: var(--orange-soft); color: var(--up); }
+  .pstat.warn { background: var(--blue-soft); color: var(--down); }
+  .pstat.mix { background: var(--gray-soft); color: var(--muted); }
+  .pstat.stop { background: var(--blue-soft); color: var(--down); font-weight: 700; }
   .dcard .pat { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
   .ptag { font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
   .ptag.buy { background: var(--orange-soft); color: var(--up); }
@@ -343,16 +353,47 @@ const PAT_KIND = { "No Supply": "buy", "Stopping Volume": "buy", "Test Bar": "bu
 const patKind = p => !p ? "mix" : (PAT_KIND[p] || "mix");
 const KIND_LABEL = { buy: "매수 관점", warn: "주의", mix: "위치 따라" };
 
-function spark(c, matchDay) {
+const tickOf = p => p < 2000 ? 1 : p < 5000 ? 5 : p < 20000 ? 10 : p < 50000 ? 50 : p < 200000 ? 100 : p < 500000 ? 500 : 1000;
+const tickUp = p => { const t = tickOf(p); return Math.ceil(p / t) * t; };
+const tickDn = p => { const t = tickOf(p); return Math.floor(p / t) * t; };
+
+function pricePlan(r, c) {
+  if (!c || !c.d || !c.d.length) return null;
+  const n = c.d.length;
+  let si = c.d.indexOf(r["매칭일"]); if (si < 0) si = n - 1;
+  const last = c.c[n - 1];
+  const buy = tickUp(c.h[si] + tickOf(c.h[si]));                 // 신호 캔들 고가 + 1호가
+  const support = Math.min(...c.l.slice(Math.max(0, n - 10)));      // 최근 10거래일 최저가
+  const stopRule = tickUp(buy * 0.95);                               // -5% 원칙 (5%를 넘지 않게 올림)
+  const stopSup = tickDn(support - tickOf(support));                 // 지지선 바로 아래
+  const useSup = stopSup > stopRule;                                 // 지지선이 더 가까우면 지지선 사용
+  const stop = useSup ? stopSup : stopRule;
+  const target = tickDn(buy * 1.10);
+  const riskPct = (buy - stop) / buy * 100;
+  const supGap = (buy - support) / buy * 100;
+  let status, cls;
+  if (patKind(r["패턴"]) === "warn") { status = "주의패턴-매수금지"; cls = "stop"; }
+  else if (last >= buy * 1.03) { status = "이미 돌파 · 매수가 근처로 되돌림 대기"; cls = "warn"; }
+  else if (last >= buy) { status = "돌파 진행 중 · 매수가 +3% 이내만 매수"; cls = "buy"; }
+  else { status = `돌파 대기 · 현재가보다 +${((buy - last) / last * 100).toFixed(1)}% 위`; cls = "mix"; }
+  return { si, buy, stop, target, support, useSup, riskPct, supGap, rr: (target - buy) / (buy - stop), status, cls };
+}
+
+function spark(c, matchDay, plan) {
   if (!c || !c.c || !c.c.length) return "";
   const n = Math.min(30, c.c.length), off = c.c.length - n;
   const cl = c.c.slice(off), ma = c.ma.slice(off), ds = c.d.slice(off);
   const vals = cl.concat(ma.filter(v => v !== null));
-  let lo = Math.min(...vals), hi = Math.max(...vals); const pad = (hi - lo) * 0.1 || 1; lo -= pad; hi += pad;
-  const W = 240, H = 56, x = i => i / (n - 1) * (W - 6) + 3, y = v => H - 3 - (v - lo) / (hi - lo) * (H - 6);
+  if (plan) vals.push(plan.buy, plan.stop, plan.target);
+  let lo = Math.min(...vals), hi = Math.max(...vals); const pad = (hi - lo) * 0.06 || 1; lo -= pad; hi += pad;
+  const W = 240, H = 70, x = i => i / (n - 1) * (W - 6) + 3, y = v => H - 3 - (v - lo) / (hi - lo) * (H - 6);
   const line = arr => arr.map((v, i) => v === null ? null : `${x(i).toFixed(1)},${y(v).toFixed(1)}`).filter(Boolean).join(" ");
   const up = cl[n - 1] >= cl[0];
   let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">`;
+  if (plan) {
+    const hl = (v, col, dash) => `<line x1="0" x2="${W}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="${col}" stroke-width="1.2" stroke-dasharray="${dash}"/>`;
+    s += hl(plan.target, "var(--up)", "2 3") + hl(plan.buy, "var(--accent)", "5 3") + hl(plan.stop, "var(--down)", "2 3");
+  }
   s += `<polyline points="${line(ma)}" fill="none" stroke="#f08a24" stroke-width="1.5" stroke-dasharray="3 2"/>`;
   s += `<polyline points="${line(cl)}" fill="none" stroke="${up ? "var(--up)" : "var(--down)"}" stroke-width="2"/>`;
   const mi = ds.indexOf(matchDay);
@@ -360,11 +401,22 @@ function spark(c, matchDay) {
   return s + "</svg>";
 }
 
+function planHtml(p) {
+  if (!p) return "";
+  return `<div class="plan">
+    <div><span>매수가</span><b style="color:var(--accent)">${fmt(p.buy)}</b><i>신호 캔들 고가 돌파</i></div>
+    <div><span>손절가</span><b style="color:var(--down)">${fmt(p.stop)}</b><i>-${p.riskPct.toFixed(1)}% · ${p.useSup ? "지지선" : "-5% 원칙"}</i></div>
+    <div><span>목표가</span><b style="color:var(--up)">${fmt(p.target)}</b><i>+10% · 절반 매도</i></div>
+    <div><span>손익비</span><b>${p.rr.toFixed(1)} : 1</b><i>${p.rr >= 1.8 ? "양호" : "보통"}</i></div>
+  </div>
+  <div class="pstat ${p.cls}">${p.status}${p.cls !== "stop" && p.supGap > 5 ? ` · 지지선까지 -${p.supGap.toFixed(1)}%로 멀어 손절은 -5% 원칙 적용` : ""}</div>`;
+}
+
 function renderDash(rows) {
   const card = $("dashCard");
   if (!card) return;
   const sorted = [...rows].sort((a, b) => (b["점수"] ?? -1) - (a["점수"] ?? -1));
-  $("dashSub").textContent = sorted.length ? `· VPA 점수 높은 순 · 기준일 ${DATA.meta["기준일"]}` : "";
+  $("dashSub").innerHTML = sorted.length ? `· VPA 점수 높은 순 · 기준일 ${DATA.meta["기준일"]} · 선: <span style="color:var(--accent)">━ 매수가</span> <span style="color:var(--down)">┅ 손절가</span> <span style="color:var(--up)">┅ 목표가</span>` : "";
   if (!sorted.length) {
     $("dashTiles").innerHTML = "";
     $("dashGrid").innerHTML = `<div class="empty">조건을 만족하는 종목이 없습니다.</div>`;
@@ -386,17 +438,18 @@ function renderDash(rows) {
     const last = c && c.c.length ? c.c[c.c.length - 1] : r["현재가"];
     const prev = c && c.c.length > 1 ? c.c[c.c.length - 2] : null;
     const chg = prev ? (last - prev) / prev * 100 : null;
-    const kind = patKind(r["패턴"]), sc = r["점수"];
+    const kind = patKind(r["패턴"]), sc = r["점수"], plan = pricePlan(r, c);
     return `<div class="dcard" data-i="${i}">
       <div class="row">
         <div><span class="nm">${esc(r["종목명"])}</span><span class="cd">${esc(r["종목코드"])}</span>
           <div class="sec">${esc(r["업종명"])} ${badges(r["업종 신호"])}</div></div>
         <div><div class="px">${fmt(last)}원</div><div class="chg"><span class="meta">전일</span> ${pct(chg === null ? null : Math.round(chg * 100) / 100)}</div></div>
       </div>
-      ${spark(c, r["매칭일"])}
+      ${spark(c, r["매칭일"], plan)}
       <div class="pat"><span>${esc(r["패턴"] || "-")} <span class="ptag ${kind}">${KIND_LABEL[kind]}</span></span>
         <b>${fmt(sc, 2)}</b></div>
       <div class="bar"><i style="width:${Math.max(0, Math.min(1, sc || 0)) * 100}%"></i></div>
+      ${planHtml(plan)}
     </div>`;
   }).join("");
   $("dashGrid").querySelectorAll(".dcard").forEach(el => el.onclick = () => openChart(sorted[+el.dataset.i]));
@@ -467,15 +520,18 @@ function openChart(row) {
     ["현재가", fmt(s["현재가"])], ["20일선", fmt(s["20일선"])], ["이격", fmt(s["20일선 이격"], 3)],
     ["거래량비", fmt(s["거래량비(3일/20일)"], 2)], ["시총(억)", fmt(s["시가총액(억)"])],
   ];
+  const plan = pricePlan(s, c);
+  if (plan) info.push(["매수가", fmt(plan.buy)], ["손절가", `${fmt(plan.stop)} (-${plan.riskPct.toFixed(1)}%)`],
+    ["목표가", `${fmt(plan.target)} (+10%)`], ["상태", plan.status]);
   $("chInfo").innerHTML = info.map(([k, v]) => `<div><span>${k}</span>${v}</div>`).join("");
   $("chartBox").classList.add("show");
-  requestAnimationFrame(() => drawChart(c, s["매칭일"]));
+  requestAnimationFrame(() => drawChart(c, s["매칭일"], plan));
 }
 $("chClose").onclick = () => $("chartBox").classList.remove("show");
 $("chartBox").onclick = (e) => { if (e.target.id === "chartBox") $("chartBox").classList.remove("show"); };
 document.addEventListener("keydown", e => { if (e.key === "Escape") $("chartBox").classList.remove("show"); });
 
-function drawChart(c, matchDay) {
+function drawChart(c, matchDay, plan) {
   const cv = $("chart"), ctx = cv.getContext("2d");
   const W = cv.clientWidth, H = cv.clientHeight, dpr = window.devicePixelRatio || 1;
   cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -485,6 +541,7 @@ function drawChart(c, matchDay) {
   if (!c || !c.d.length) { ctx.fillStyle = col("--muted"); ctx.fillText("차트 데이터가 없습니다", 20, 30); return; }
   const n = c.d.length, padL = 8, padR = 62, top = 12, priceH = H * 0.70, gap = 10, volTop = top + priceH + gap, volH = H - volTop - 22;
   const vals = [...c.h, ...c.l, ...c.ma.filter(x => x !== null)];
+  if (plan) vals.push(plan.buy, plan.stop, plan.target);
   let lo = Math.min(...vals), hi = Math.max(...vals); const span = (hi - lo) || hi * 0.01; lo -= span * 0.04; hi += span * 0.06;
   const vmax = Math.max(...c.v) || 1;
   const step = (W - padL - padR) / n, bw = Math.max(2, step * 0.62);
@@ -514,6 +571,14 @@ function drawChart(c, matchDay) {
   ctx.strokeStyle = "#f08a24"; ctx.lineWidth = 2; ctx.beginPath(); let started = false;
   c.ma.forEach((m, i) => { if (m === null) return; if (!started) { ctx.moveTo(x(i), y(m)); started = true; } else ctx.lineTo(x(i), y(m)); });
   ctx.stroke(); ctx.lineWidth = 1;
+  // 매수가 / 손절가 / 목표가 선
+  if (plan) {
+    [[plan.target, col("--up"), "목표"], [plan.buy, col("--accent"), "매수"], [plan.stop, col("--down"), "손절"]].forEach(([p, cc, t]) => {
+      const yy = y(p); ctx.strokeStyle = cc; ctx.fillStyle = cc; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.3;
+      ctx.beginPath(); ctx.moveTo(padL, yy); ctx.lineTo(W - padR, yy); ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth = 1;
+      ctx.font = "bold 11px sans-serif"; ctx.fillText(`${t} ${Math.round(p).toLocaleString("ko-KR")}`, padL + 4, yy - 4); ctx.font = "11px sans-serif";
+    });
+  }
   // 날짜
   ctx.fillStyle = col("--muted");
   [0, Math.floor(n / 2), n - 1].forEach(i => { const t = c.d[i].slice(5); ctx.fillText(t, Math.min(x(i) - 14, W - padR - 30), H - 6); });
