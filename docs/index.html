@@ -82,6 +82,30 @@
   .kv div span { color: var(--muted); margin-right: 6px; }
   details { margin-top: 6px; } summary { cursor: pointer; color: var(--accent); }
   .glossary dt { font-weight: 600; margin-top: 8px; } .glossary dd { margin: 2px 0 0; color: var(--muted); font-size: 14px; }
+  /* 대시보드 */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .tile { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .tile .k { font-size: 12px; color: var(--muted); }
+  .tile .v { font-size: 20px; font-weight: 700; margin-top: 2px; }
+  .tile .s { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .tile .v.sm { font-size: 15px; line-height: 1.35; padding-top: 3px; }
+  .dash-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+  .dcard { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 12px; cursor: pointer; }
+  .dcard:hover { border-color: var(--accent); }
+  .dcard .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .dcard .nm { font-weight: 700; font-size: 15px; }
+  .dcard .cd { color: var(--muted); font-size: 12px; margin-left: 4px; font-weight: 400; }
+  .dcard .sec { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+  .dcard .px { text-align: right; font-weight: 700; font-size: 16px; white-space: nowrap; }
+  .dcard .chg { text-align: right; font-size: 12px; }
+  .dcard svg { width: 100%; height: 56px; display: block; margin: 8px 0 6px; }
+  .dcard .pat { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+  .ptag { font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+  .ptag.buy { background: var(--orange-soft); color: var(--up); }
+  .ptag.warn { background: var(--blue-soft); color: var(--down); }
+  .ptag.mix { background: var(--gray-soft); color: var(--muted); }
+  .bar { height: 6px; background: var(--gray-soft); border-radius: 999px; overflow: hidden; margin-top: 6px; }
+  .bar i { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
   /* VPA 패턴 카드 */
   .vpa-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
   .vpa { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--bg); }
@@ -138,6 +162,11 @@
       <h2>결과 <span class="hint" id="pickCount"></span></h2>
       <p class="hint">VPA 점수 높은 순입니다. 종목을 누르면 차트가 나옵니다.</p>
       <div class="tablewrap"><table id="pickTable"></table></div>
+    </div>
+    <div class="card" id="dashCard">
+      <h2>대시보드 <span class="hint" id="dashSub"></span></h2>
+      <div class="tiles" id="dashTiles"></div>
+      <div class="dash-grid" id="dashGrid"></div>
     </div>
   </section>
 
@@ -306,6 +335,71 @@ function renderPick() {
     { k: "시가총액(억)", t: "시총(억)", f: v => fmt(v) },
   ], rows, { sortKey: "점수", onRow: openChart,
              emptyText: "조건을 모두 만족하는 종목이 없습니다. 위 숫자에서 가장 크게 줄어드는 조건을 완화해보세요." });
+  renderDash(rows);
+}
+
+/* ---------- 대시보드 ---------- */
+const PAT_KIND = { "No Supply": "buy", "Stopping Volume": "buy", "Test Bar": "buy", "No Demand": "warn" };
+const patKind = p => !p ? "mix" : (PAT_KIND[p] || "mix");
+const KIND_LABEL = { buy: "매수 관점", warn: "주의", mix: "위치 따라" };
+
+function spark(c, matchDay) {
+  if (!c || !c.c || !c.c.length) return "";
+  const n = Math.min(30, c.c.length), off = c.c.length - n;
+  const cl = c.c.slice(off), ma = c.ma.slice(off), ds = c.d.slice(off);
+  const vals = cl.concat(ma.filter(v => v !== null));
+  let lo = Math.min(...vals), hi = Math.max(...vals); const pad = (hi - lo) * 0.1 || 1; lo -= pad; hi += pad;
+  const W = 240, H = 56, x = i => i / (n - 1) * (W - 6) + 3, y = v => H - 3 - (v - lo) / (hi - lo) * (H - 6);
+  const line = arr => arr.map((v, i) => v === null ? null : `${x(i).toFixed(1)},${y(v).toFixed(1)}`).filter(Boolean).join(" ");
+  const up = cl[n - 1] >= cl[0];
+  let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">`;
+  s += `<polyline points="${line(ma)}" fill="none" stroke="#f08a24" stroke-width="1.5" stroke-dasharray="3 2"/>`;
+  s += `<polyline points="${line(cl)}" fill="none" stroke="${up ? "var(--up)" : "var(--down)"}" stroke-width="2"/>`;
+  const mi = ds.indexOf(matchDay);
+  if (mi >= 0) s += `<circle cx="${x(mi)}" cy="${y(cl[mi])}" r="3.5" fill="var(--card)" stroke="var(--accent)" stroke-width="2"/>`;
+  return s + "</svg>";
+}
+
+function renderDash(rows) {
+  const card = $("dashCard");
+  if (!card) return;
+  const sorted = [...rows].sort((a, b) => (b["점수"] ?? -1) - (a["점수"] ?? -1));
+  $("dashSub").textContent = sorted.length ? `· VPA 점수 높은 순 · 기준일 ${DATA.meta["기준일"]}` : "";
+  if (!sorted.length) {
+    $("dashTiles").innerHTML = "";
+    $("dashGrid").innerHTML = `<div class="empty">조건을 만족하는 종목이 없습니다.</div>`;
+    return;
+  }
+  const scores = sorted.map(r => r["점수"]).filter(v => v !== null && v !== undefined);
+  const avg = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
+  const secCount = {}; sorted.forEach(r => secCount[r["업종명"]] = (secCount[r["업종명"]] || 0) + 1);
+  const topSec = Object.entries(secCount).sort((a, b) => b[1] - a[1])[0];
+  const kinds = { buy: 0, warn: 0, mix: 0 }; sorted.forEach(r => kinds[patKind(r["패턴"])]++);
+  $("dashTiles").innerHTML = [
+    ["후보 종목", `${sorted.length}개`, `업종 ${Object.keys(secCount).length}개`],
+    ["평균 VPA 점수", fmt(avg, 2), `최고 ${fmt(scores[0], 2)}`],
+    ["가장 많은 업종", esc(topSec[0]), `${topSec[1]}종목`],
+    ["패턴 성격", `매수 ${kinds.buy}`, `주의 ${kinds.warn} · 위치따라 ${kinds.mix}`],
+  ].map(([k, v, s], i) => `<div class="tile"><div class="k">${k}</div><div class="v${i === 2 ? " sm" : ""}">${v}</div><div class="s">${s}</div></div>`).join("");
+  $("dashGrid").innerHTML = sorted.map((r, i) => {
+    const c = DATA.candles[r["종목코드"]];
+    const last = c && c.c.length ? c.c[c.c.length - 1] : r["현재가"];
+    const prev = c && c.c.length > 1 ? c.c[c.c.length - 2] : null;
+    const chg = prev ? (last - prev) / prev * 100 : null;
+    const kind = patKind(r["패턴"]), sc = r["점수"];
+    return `<div class="dcard" data-i="${i}">
+      <div class="row">
+        <div><span class="nm">${esc(r["종목명"])}</span><span class="cd">${esc(r["종목코드"])}</span>
+          <div class="sec">${esc(r["업종명"])} ${badges(r["업종 신호"])}</div></div>
+        <div><div class="px">${fmt(last)}원</div><div class="chg"><span class="meta">전일</span> ${pct(chg === null ? null : Math.round(chg * 100) / 100)}</div></div>
+      </div>
+      ${spark(c, r["매칭일"])}
+      <div class="pat"><span>${esc(r["패턴"] || "-")} <span class="ptag ${kind}">${KIND_LABEL[kind]}</span></span>
+        <b>${fmt(sc, 2)}</b></div>
+      <div class="bar"><i style="width:${Math.max(0, Math.min(1, sc || 0)) * 100}%"></i></div>
+    </div>`;
+  }).join("");
+  $("dashGrid").querySelectorAll(".dcard").forEach(el => el.onclick = () => openChart(sorted[+el.dataset.i]));
 }
 
 /* ---------- 업종 순위 ---------- */
