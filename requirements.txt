@@ -1,0 +1,7 @@
+finance-datareader
+pandas
+numpy
+requests
+openpyxl
+matplotlib
+lxml
