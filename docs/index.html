@@ -203,12 +203,19 @@
     <div class="card">
       <h2>VPA 점수 상위 종목</h2>
       <p class="hint">전종목 중 VPA 점수가 기준 이상인 종목입니다. 다른 조건(RS, 이격 등)은 적용하지 않습니다. 종목을 누르면 차트가 나옵니다.</p>
-      <div class="conds" style="max-width:420px">
+      <div class="conds" style="max-width:720px">
         <label>VPA 점수 (이상)<input id="v_min" type="number" step="0.05" min="0" max="1" value="0.9"></label>
         <label>패턴<select id="v_pat"><option value="">전체</option></select></label>
+        <label>업종 신호<select id="v_sig"><option value="">전체</option><option>신규 부상</option><option>지속 강세</option><option>강세 둔화</option><option>거래량↑</option><option value="-">신호 없음</option></select></label>
+        <label>업종RS (이상)<input id="v_srs" type="number" step="1" min="0" max="99" value="0"></label>
       </div>
       <p class="hint" style="margin-top:10px" id="vpaCount"></p>
       <div class="tablewrap"><table id="vpaTable"></table></div>
+    </div>
+    <div class="card" id="vDashCard">
+      <h2>대시보드 <span class="hint" id="vDashSub"></span></h2>
+      <div class="tiles" id="vDashTiles"></div>
+      <div class="dash-grid" id="vDashGrid"></div>
     </div>
   </section>
 
@@ -426,14 +433,14 @@ function planHtml(p) {
   <div class="pstat ${p.cls}">${p.status}${p.cls !== "stop" && p.supGap > 5 ? ` · 지지선까지 -${p.supGap.toFixed(1)}%로 멀어 손절은 -5% 원칙 적용` : ""}</div>`;
 }
 
-function renderDash(rows) {
-  const card = $("dashCard");
+function renderDash(rows, ids = { card: "dashCard", sub: "dashSub", tiles: "dashTiles", grid: "dashGrid" }) {
+  const card = $(ids.card);
   if (!card) return;
   const sorted = [...rows].sort((a, b) => (b["점수"] ?? -1) - (a["점수"] ?? -1));
-  $("dashSub").innerHTML = sorted.length ? `· VPA 점수 높은 순 · 기준일 ${DATA.meta["기준일"]} · 선: <span style="color:var(--accent)">━ 매수가</span> <span style="color:var(--down)">┅ 손절가</span> <span style="color:var(--up)">┅ 목표가</span>` : "";
+  $(ids.sub).innerHTML = sorted.length ? `· VPA 점수 높은 순 · 기준일 ${DATA.meta["기준일"]} · 선: <span style="color:var(--accent)">━ 매수가</span> <span style="color:var(--down)">┅ 손절가</span> <span style="color:var(--up)">┅ 목표가</span>` : "";
   if (!sorted.length) {
-    $("dashTiles").innerHTML = "";
-    $("dashGrid").innerHTML = `<div class="empty">조건을 만족하는 종목이 없습니다.</div>`;
+    $(ids.tiles).innerHTML = "";
+    $(ids.grid).innerHTML = `<div class="empty">조건을 만족하는 종목이 없습니다.</div>`;
     return;
   }
   const scores = sorted.map(r => r["점수"]).filter(v => v !== null && v !== undefined);
@@ -441,13 +448,13 @@ function renderDash(rows) {
   const secCount = {}; sorted.forEach(r => secCount[r["업종명"]] = (secCount[r["업종명"]] || 0) + 1);
   const topSec = Object.entries(secCount).sort((a, b) => b[1] - a[1])[0];
   const kinds = { buy: 0, warn: 0, mix: 0 }; sorted.forEach(r => kinds[patKind(r["패턴"])]++);
-  $("dashTiles").innerHTML = [
+  $(ids.tiles).innerHTML = [
     ["후보 종목", `${sorted.length}개`, `업종 ${Object.keys(secCount).length}개`],
     ["평균 VPA 점수", fmt(avg, 2), `최고 ${fmt(scores[0], 2)}`],
     ["가장 많은 업종", esc(topSec[0]), `${topSec[1]}종목`],
     ["패턴 성격", `매수 ${kinds.buy}`, `주의 ${kinds.warn} · 위치따라 ${kinds.mix}`],
   ].map(([k, v, s], i) => `<div class="tile"><div class="k">${k}</div><div class="v${i === 2 ? " sm" : ""}">${v}</div><div class="s">${s}</div></div>`).join("");
-  $("dashGrid").innerHTML = sorted.map((r, i) => {
+  $(ids.grid).innerHTML = sorted.map((r, i) => {
     const c = DATA.candles[r["종목코드"]];
     const last = c && c.c.length ? c.c[c.c.length - 1] : r["현재가"];
     const prev = c && c.c.length > 1 ? c.c[c.c.length - 2] : null;
@@ -465,7 +472,7 @@ function renderDash(rows) {
       ${planHtml(plan)}
     </div>`;
   }).join("");
-  $("dashGrid").querySelectorAll(".dcard").forEach(el => el.onclick = () => openChart(sorted[+el.dataset.i]));
+  $(ids.grid).querySelectorAll(".dcard").forEach(el => el.onclick = () => openChart(sorted[+el.dataset.i]));
 }
 
 /* ---------- 업종 순위 ---------- */
@@ -504,8 +511,10 @@ function renderLeader() {
 
 /* ---------- VPA ---------- */
 function renderVpa() {
-  const min = parseFloat($("v_min").value), pat = $("v_pat").value;
-  const rows = DATA.stocks.filter(s => s["점수"] !== null && s["점수"] >= (isNaN(min) ? 0.9 : min) && (!pat || s["패턴"] === pat));
+  const min = parseFloat($("v_min").value), pat = $("v_pat").value, sig = $("v_sig").value, srs = parseFloat($("v_srs").value) || 0;
+  const rows = DATA.stocks.filter(s => s["점수"] !== null && s["점수"] >= (isNaN(min) ? 0.9 : min) && (!pat || s["패턴"] === pat)
+    && (!sig || (sig === "-" ? !s["업종 신호"] : String(s["업종 신호"] || "").includes(sig)))
+    && (srs <= 0 || (s["업종RS(1개월)"] ?? 0) >= srs));
   const byPat = {}; rows.forEach(s => byPat[s["패턴"]] = (byPat[s["패턴"]] || 0) + 1);
   $("vpaCount").textContent = `${rows.length}개 종목` + (rows.length ? " · " + Object.entries(byPat).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(", ") : "");
   renderTable($("vpaTable"), [
@@ -519,6 +528,7 @@ function renderVpa() {
     { k: "거래량비(3일/20일)", t: "거래량비", f: v => fmt(v, 2) },
     { k: "시가총액(억)", t: "시총(억)", f: v => fmt(v) },
   ], rows, { sortKey: "점수", onRow: openChart, emptyText: "기준 이상인 종목이 없습니다." });
+  renderDash(rows, { card: "vDashCard", sub: "vDashSub", tiles: "vDashTiles", grid: "vDashGrid" });
 }
 
 /* ---------- 전종목 ---------- */
@@ -712,7 +722,7 @@ fetch("data/latest.json", { cache: "no-store" })
     $("resetBtn").onclick = () => { setDefaults(); renderPick(); };
     $("search").addEventListener("input", renderAll);
     [...new Set(d.stocks.map(s => s["패턴"]).filter(Boolean))].sort().forEach(p => $("v_pat").insertAdjacentHTML("beforeend", `<option>${esc(p)}</option>`));
-    $("v_min").addEventListener("input", renderVpa); $("v_pat").addEventListener("change", renderVpa);
+    ["v_min", "v_srs"].forEach(id => $(id).addEventListener("input", renderVpa)); ["v_pat", "v_sig"].forEach(id => $(id).addEventListener("change", renderVpa));
     renderPick(); renderVpa(); renderSector(); renderLeader(); renderAll();
   })
   .catch(err => {
