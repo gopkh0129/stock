@@ -71,3 +71,17 @@ jobs:
       - name: 웹사이트에 올리기
         id: deploy
         uses: actions/deploy-pages@v4
+
+      - name: 텔레그램 알림
+        if: github.event_name != 'push'
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python notify.py || echo "알림 전송 실패 - 계속 진행"
+
+      - name: 실패 알림
+        if: failure() && github.event_name != 'push'
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python3 notify.py --fail || true
