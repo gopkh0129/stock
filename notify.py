@@ -8,6 +8,7 @@ DATA_PATH = "docs/data/latest.json"
 SITE = "https://gopkh0129.github.io/stock/"
 VPA_MIN = 0.90
 WARN_PATTERNS = {"No Demand"}
+STOP_PCT, TARGET_PCT = 7, 21   # 손절 -7% / 목표 +21% (손익비 1:3)
 
 
 def tick_of(p):
@@ -28,11 +29,8 @@ def price_plan(s, c):
     si = c["d"].index(s["매칭일"]) if s.get("매칭일") in c["d"] else n - 1
     last = c["c"][-1]
     buy = tick_up(c["h"][si] + tick_of(c["h"][si]))
-    support = min(c["l"][max(0, n - 10):])
-    stop_rule = tick_up(buy * 0.95)
-    stop_sup = tick_dn(support - tick_of(support))
-    stop = stop_sup if stop_sup > stop_rule else stop_rule
-    target = tick_dn(buy * 1.10)
+    stop = tick_up(buy * (1 - STOP_PCT / 100))
+    target = tick_dn(buy * (1 + TARGET_PCT / 100))
     if s.get("패턴") in WARN_PATTERNS:
         status = "⛔ 주의패턴-매수금지"
     elif last >= buy * 1.03:
@@ -80,7 +78,7 @@ def block(title, rows, d):
         out.append(f"   {s.get('패턴')} · 점수 {s.get('점수', 0):.2f}")
         if p:
             out.append(f"   현재가 {fmt(p['last'])} / 매수가 {fmt(p['buy'])}")
-            out.append(f"   손절가 {fmt(p['stop'])} (-{p['risk']:.1f}%) / 목표가 {fmt(p['target'])} (+10%)")
+            out.append(f"   손절가 {fmt(p['stop'])} (-{p['risk']:.1f}%) / 목표가 {fmt(p['target'])} (+{TARGET_PCT}%)")
             out.append(f"   상태: {p['status']}")
     return "\n".join(out)
 

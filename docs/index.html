@@ -374,6 +374,7 @@ const PAT_KIND = { "No Supply": "buy", "Stopping Volume": "buy", "Test Bar": "bu
 const patKind = p => !p ? "mix" : (PAT_KIND[p] || "mix");
 const KIND_LABEL = { buy: "매수 관점", warn: "주의", mix: "위치 따라" };
 
+const STOP_PCT = 7, TARGET_PCT = 21;                                 // 손절 -7% / 목표 +21% (R = 3)
 const tickOf = p => p < 2000 ? 1 : p < 5000 ? 5 : p < 20000 ? 10 : p < 50000 ? 50 : p < 200000 ? 100 : p < 500000 ? 500 : 1000;
 const tickUp = p => { const t = tickOf(p); return Math.ceil(p / t) * t; };
 const tickDn = p => { const t = tickOf(p); return Math.floor(p / t) * t; };
@@ -384,20 +385,15 @@ function pricePlan(r, c) {
   let si = c.d.indexOf(r["매칭일"]); if (si < 0) si = n - 1;
   const last = c.c[n - 1];
   const buy = tickUp(c.h[si] + tickOf(c.h[si]));                 // 신호 캔들 고가 + 1호가
-  const support = Math.min(...c.l.slice(Math.max(0, n - 10)));      // 최근 10거래일 최저가
-  const stopRule = tickUp(buy * 0.95);                               // -5% 원칙 (5%를 넘지 않게 올림)
-  const stopSup = tickDn(support - tickOf(support));                 // 지지선 바로 아래
-  const useSup = stopSup > stopRule;                                 // 지지선이 더 가까우면 지지선 사용
-  const stop = useSup ? stopSup : stopRule;
-  const target = tickDn(buy * 1.10);
+  const stop = tickUp(buy * (1 - STOP_PCT / 100));                    // -7% 고정 (7%를 넘지 않게 올림)
+  const target = tickDn(buy * (1 + TARGET_PCT / 100));               // +21% 고정 (손익비 1:3)
   const riskPct = (buy - stop) / buy * 100;
-  const supGap = (buy - support) / buy * 100;
   let status, cls;
   if (patKind(r["패턴"]) === "warn") { status = "주의패턴-매수금지"; cls = "stop"; }
   else if (last >= buy * 1.03) { status = "이미 돌파 · 매수가 근처로 되돌림 대기"; cls = "warn"; }
   else if (last >= buy) { status = "돌파 진행 중 · 매수가 +3% 이내만 매수"; cls = "buy"; }
   else { status = `돌파 대기 · 현재가보다 +${((buy - last) / last * 100).toFixed(1)}% 위`; cls = "mix"; }
-  return { si, buy, stop, target, support, useSup, riskPct, supGap, status, cls, score: r["점수"], day: r["매칭일"] };
+  return { si, buy, stop, target, riskPct, status, cls, score: r["점수"], day: r["매칭일"] };
 }
 
 function spark(c, matchDay, plan) {
@@ -426,11 +422,11 @@ function planHtml(p) {
   if (!p) return "";
   return `<div class="plan">
     <div><span>매수가</span><b style="color:var(--accent)">${fmt(p.buy)}</b><i>신호 캔들 고가 돌파</i></div>
-    <div><span>손절가</span><b style="color:var(--down)">${fmt(p.stop)}</b><i>-${p.riskPct.toFixed(1)}% · ${p.useSup ? "지지선" : "-5% 원칙"}</i></div>
-    <div><span>목표가</span><b style="color:var(--up)">${fmt(p.target)}</b><i>+10% · 절반 매도</i></div>
+    <div><span>손절가</span><b style="color:var(--down)">${fmt(p.stop)}</b><i>-${p.riskPct.toFixed(1)}% · -${STOP_PCT}% 원칙</i></div>
+    <div><span>목표가</span><b style="color:var(--up)">${fmt(p.target)}</b><i>+${TARGET_PCT}% · 손익비 1:${TARGET_PCT / STOP_PCT}</i></div>
     <div><span>VPA 점수</span><b>${fmt(p.score, 2)}</b><i>패턴 날짜 ${p.day ? p.day.slice(5) : "-"}</i></div>
   </div>
-  <div class="pstat ${p.cls}">${p.status}${p.cls !== "stop" && p.supGap > 5 ? ` · 지지선까지 -${p.supGap.toFixed(1)}%로 멀어 손절은 -5% 원칙 적용` : ""}</div>`;
+  <div class="pstat ${p.cls}">${p.status}</div>`;
 }
 
 function renderDash(rows, ids = { card: "dashCard", sub: "dashSub", tiles: "dashTiles", grid: "dashGrid" }) {
@@ -564,7 +560,7 @@ function openChart(row) {
   ];
   const plan = pricePlan(s, c);
   if (plan) info.push(["매수가", fmt(plan.buy)], ["손절가", `${fmt(plan.stop)} (-${plan.riskPct.toFixed(1)}%)`],
-    ["목표가", `${fmt(plan.target)} (+10%)`], ["상태", plan.status]);
+    ["목표가", `${fmt(plan.target)} (+${TARGET_PCT}%)`], ["상태", plan.status]);
   $("chInfo").innerHTML = info.map(([k, v]) => `<div><span>${k}</span>${v}</div>`).join("");
   $("chartBox").classList.add("show");
   requestAnimationFrame(() => drawChart(c, s["매칭일"], plan));
