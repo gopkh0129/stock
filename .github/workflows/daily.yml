@@ -3,7 +3,12 @@ name: 매일 스크리닝
 
 on:
   schedule:
+    # GitHub 예약 실행은 늦거나 빠질 때가 있어 여러 번 걸어둡니다.
+    # 오늘 결과가 이미 만들어졌으면 뒤의 예약은 아무것도 하지 않고 끝납니다.
     - cron: "10 7 * * 1-5"   # 월~금 07:10 UTC = 한국시간 16:10 (장 마감 후)
+    - cron: "40 7 * * 1-5"   # 한국시간 16:40 (예비)
+    - cron: "30 8 * * 1-5"   # 한국시간 17:30 (예비)
+    - cron: "0 10 * * 1-5"   # 한국시간 19:00 (예비)
   workflow_dispatch:          # Actions 화면의 'Run workflow' 버튼으로 직접 실행
   push:                       # 웹페이지(index.html)만 고쳤을 때는 스크리닝 없이 다시 올리기만
     branches: [main]
@@ -31,27 +36,36 @@ jobs:
       - name: 저장소 가져오기
         uses: actions/checkout@v4
 
+      - name: 오늘 이미 실행했는지 확인 (예비 예약용)
+        id: check
+        run: |
+          made=$(python3 -c "import json;print(json.load(open('docs/data/latest.json'))['meta']['생성시각'][:10])" 2>/dev/null || echo "")
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "$made" = "$(date +'%Y-%m-%d')" ]; then
+            echo "오늘($made) 결과가 이미 있어 이번 예약은 건너뜁니다."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: 파이썬 준비
-        if: github.event_name != 'push'
+        if: github.event_name != 'push' && steps.check.outputs.skip != 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
 
       - name: 한글 글꼴 설치 (엑셀 속 차트용)
-        if: github.event_name != 'push'
+        if: github.event_name != 'push' && steps.check.outputs.skip != 'true'
         run: (sudo apt-get update -qq && sudo apt-get install -y -qq fonts-nanum) || echo "글꼴 설치 실패 - 계속 진행"
 
       - name: 필요한 프로그램 설치
-        if: github.event_name != 'push'
+        if: github.event_name != 'push' && steps.check.outputs.skip != 'true'
         run: pip install -r requirements.txt
 
       - name: 스크리닝 실행
-        if: github.event_name != 'push'
+        if: github.event_name != 'push' && steps.check.outputs.skip != 'true'
         run: python screener.py
 
       - name: 결과 저장
-        if: github.event_name != 'push'
+        if: github.event_name != 'push' && steps.check.outputs.skip != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -64,16 +78,18 @@ jobs:
           fi
 
       - name: 웹사이트 파일 준비
+        if: steps.check.outputs.skip != 'true'
         uses: actions/upload-pages-artifact@v3
         with:
           path: docs
 
       - name: 웹사이트에 올리기
+        if: steps.check.outputs.skip != 'true'
         id: deploy
         uses: actions/deploy-pages@v4
 
       - name: 텔레그램 알림
-        if: github.event_name != 'push'
+        if: github.event_name != 'push' && steps.check.outputs.skip != 'true'
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
