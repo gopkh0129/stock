@@ -4,7 +4,7 @@ name: 매일 스크리닝
 on:
   schedule:
     # GitHub 예약 실행은 늦거나 빠질 때가 있어 여러 번 걸어둡니다.
-    # 오늘 결과가 이미 만들어졌으면 뒤의 예약은 아무것도 하지 않고 끝납니다.
+    # 최근 장 결과가 이미 만들어졌으면 뒤의 예약은 아무것도 하지 않고 끝납니다.
     - cron: "10 7 * * 1-5"   # 월~금 07:10 UTC = 한국시간 16:10 (장 마감 후)
     - cron: "40 7 * * 1-5"   # 한국시간 16:40 (예비)
     - cron: "30 8 * * 1-5"   # 한국시간 17:30 (예비)
@@ -38,10 +38,19 @@ jobs:
 
       - name: 오늘 이미 실행했는지 확인 (예비 예약용)
         id: check
+        # 결과 파일의 '기준일'(장 날짜)이 가장 최근 장 마감일과 같으면 건너뜁니다.
+        # 가장 최근 장 마감일: 평일 15:30 이후면 오늘, 그 전이나 주말이면 직전 평일.
         run: |
-          made=$(python3 -c "import json;print(json.load(open('docs/data/latest.json'))['meta']['생성시각'][:10])" 2>/dev/null || echo "")
-          if [ "${{ github.event_name }}" = "schedule" ] && [ "$made" = "$(date +'%Y-%m-%d')" ]; then
-            echo "오늘($made) 결과가 이미 있어 이번 예약은 건너뜁니다."
+          base=$(python3 -c "import json;print(json.load(open('docs/data/latest.json'))['meta']['기준일'])" 2>/dev/null || echo "")
+          last=$(python3 -c "
+          import datetime as d
+          n=d.datetime.now(); t=n.date()
+          if n.weekday()>=5 or n.strftime('%H%M')<'1530': t-=d.timedelta(days=1)
+          while t.weekday()>=5: t-=d.timedelta(days=1)
+          print(t)")
+          echo "결과 기준일: $base / 최근 장 마감일: $last"
+          if [ "${{ github.event_name }}" = "schedule" ] && [ -n "$base" ] && [ -n "$last" ] && [[ ! "$base" < "$last" ]]; then
+            echo "최근 장 결과가 이미 있어 이번 예약은 건너뜁니다."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
